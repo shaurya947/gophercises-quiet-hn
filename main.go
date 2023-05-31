@@ -40,30 +40,35 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 		}
 
 		var stories []item
-		quitSignal := make(chan struct{})
-		storyChan := make(chan item)
-		wg := waitGroupWithCount{}
-		i := 0
+		itemChan := make(chan *item)
 		storyIdToIdx := make(map[int]int)
-	loop:
-		for {
-			select {
-			case story := <-storyChan:
-				stories = append(stories, story)
-				if len(stories) >= numStories {
-					close(quitSignal)
-					break loop
+		idx := 0
+		for len(stories) < numStories && idx < len(ids) {
+			goroutinesToLaunch := numStories - len(stories)
+			indicesLeft := len(ids) - idx
+			if indicesLeft < goroutinesToLaunch {
+				goroutinesToLaunch = indicesLeft
+			}
+
+			for i := 0; i < goroutinesToLaunch; i++ {
+				log.Println("Launching goroutine")
+				go fetchStoryItem(&client, ids[idx], itemChan)
+				storyIdToIdx[ids[idx]] = idx
+				idx++
+			}
+
+			for i := 0; i < goroutinesToLaunch; i++ {
+				maybeItem := <-itemChan
+				if maybeItem == nil {
+					log.Println("Fetch error")
+					continue
 				}
-			default:
-				goroutineCount := wg.GetCount()
-				if i < len(ids) && goroutineCount < numStories {
-					wg.Add(1)
-					go fetchStoryItem(&wg, &client, ids[i], storyChan, quitSignal)
-					storyIdToIdx[ids[i]] = i
-					i++
-				} else if i >= len(ids) && goroutineCount == 0 {
-					close(quitSignal)
-					break loop
+
+				item := *maybeItem
+				if isStoryLink(item) {
+					stories = append(stories, item)
+				} else {
+					log.Println("Not a story")
 				}
 			}
 		}
@@ -71,6 +76,7 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 		sort.Slice(stories, func(i, j int) bool {
 			return storyIdToIdx[stories[i].ID] < storyIdToIdx[stories[j].ID]
 		})
+
 		data := templateData{
 			Stories: stories,
 			Time:    time.Now().Sub(start),
@@ -83,23 +89,13 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 	})
 }
 
-func fetchStoryItem(wg *waitGroupWithCount, client *hn.Client, id int, storyChan chan item, quitSignal chan struct{}) {
-	defer wg.Done()
-
+func fetchStoryItem(client *hn.Client, id int, itemChan chan *item) {
 	hnItem, err := client.GetItem(id)
 	if err != nil {
-		return
+		itemChan <- nil
 	}
-
 	item := parseHNItem(hnItem)
-	if !isStoryLink(item) {
-		return
-	}
-
-	select {
-	case storyChan <- item:
-	case <-quitSignal:
-	}
+	itemChan <- &item
 }
 
 func isStoryLink(item item) bool {
