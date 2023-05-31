@@ -51,7 +51,6 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 			}
 
 			for i := 0; i < goroutinesToLaunch; i++ {
-				log.Println("Launching goroutine")
 				go fetchStoryItem(&client, ids[idx], itemChan)
 				storyIdToIdx[ids[idx]] = idx
 				idx++
@@ -60,15 +59,12 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 			for i := 0; i < goroutinesToLaunch; i++ {
 				maybeItem := <-itemChan
 				if maybeItem == nil {
-					log.Println("Fetch error")
 					continue
 				}
 
 				item := *maybeItem
 				if isStoryLink(item) {
 					stories = append(stories, item)
-				} else {
-					log.Println("Not a story")
 				}
 			}
 		}
