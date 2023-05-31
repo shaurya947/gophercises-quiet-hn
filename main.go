@@ -37,16 +37,34 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 			http.Error(w, "Failed to load top stories", http.StatusInternalServerError)
 			return
 		}
+
 		var stories []item
-		for _, id := range ids {
-			maybeStoryItem := getStoryItemOrNil(client, id)
-			if maybeStoryItem != nil {
-				stories = append(stories, *maybeStoryItem)
+		quitSignal := make(chan struct{})
+		storyChan := make(chan item)
+		wg := waitGroupWithCount{}
+		i := 0
+	loop:
+		for {
+			select {
+			case story := <-storyChan:
+				stories = append(stories, story)
 				if len(stories) >= numStories {
-					break
+					close(quitSignal)
+					break loop
+				}
+			default:
+				goroutineCount := wg.GetCount()
+				if i < len(ids) && goroutineCount < numStories {
+					wg.Add(1)
+					go fetchStoryItem(&wg, &client, ids[i], storyChan, quitSignal)
+					i++
+				} else if i >= len(ids) && goroutineCount == 0 {
+					close(quitSignal)
+					break loop
 				}
 			}
 		}
+
 		data := templateData{
 			Stories: stories,
 			Time:    time.Now().Sub(start),
@@ -59,18 +77,23 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 	})
 }
 
-func getStoryItemOrNil(client hn.Client, id int) *item {
+func fetchStoryItem(wg *waitGroupWithCount, client *hn.Client, id int, storyChan chan item, quitSignal chan struct{}) {
+	defer wg.Done()
+
 	hnItem, err := client.GetItem(id)
 	if err != nil {
-		return nil
+		return
 	}
 
 	item := parseHNItem(hnItem)
-	if isStoryLink(item) {
-		return &item
+	if !isStoryLink(item) {
+		return
 	}
 
-	return nil
+	select {
+	case storyChan <- item:
+	case <-quitSignal:
+	}
 }
 
 func isStoryLink(item item) bool {
