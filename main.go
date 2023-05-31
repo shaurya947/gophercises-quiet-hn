@@ -39,13 +39,9 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 		}
 		var stories []item
 		for _, id := range ids {
-			hnItem, err := client.GetItem(id)
-			if err != nil {
-				continue
-			}
-			item := parseHNItem(hnItem)
-			if isStoryLink(item) {
-				stories = append(stories, item)
+			maybeStoryItem := getStoryItemOrNil(client, id)
+			if maybeStoryItem != nil {
+				stories = append(stories, *maybeStoryItem)
 				if len(stories) >= numStories {
 					break
 				}
@@ -61,6 +57,20 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 			return
 		}
 	})
+}
+
+func getStoryItemOrNil(client hn.Client, id int) *item {
+	hnItem, err := client.GetItem(id)
+	if err != nil {
+		return nil
+	}
+
+	item := parseHNItem(hnItem)
+	if isStoryLink(item) {
+		return &item
+	}
+
+	return nil
 }
 
 func isStoryLink(item item) bool {
