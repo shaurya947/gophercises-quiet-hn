@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -43,6 +44,7 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 		storyChan := make(chan item)
 		wg := waitGroupWithCount{}
 		i := 0
+		storyIdToIdx := make(map[int]int)
 	loop:
 		for {
 			select {
@@ -57,6 +59,7 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 				if i < len(ids) && goroutineCount < numStories {
 					wg.Add(1)
 					go fetchStoryItem(&wg, &client, ids[i], storyChan, quitSignal)
+					storyIdToIdx[ids[i]] = i
 					i++
 				} else if i >= len(ids) && goroutineCount == 0 {
 					close(quitSignal)
@@ -65,6 +68,9 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 			}
 		}
 
+		sort.Slice(stories, func(i, j int) bool {
+			return storyIdToIdx[stories[i].ID] < storyIdToIdx[stories[j].ID]
+		})
 		data := templateData{
 			Stories: stories,
 			Time:    time.Now().Sub(start),
