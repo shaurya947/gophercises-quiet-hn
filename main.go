@@ -44,7 +44,7 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 		storyIdToIdx := make(map[int]int)
 		idx := 0
 		for len(stories) < numStories && idx < len(ids) {
-			goroutinesToLaunch := numStories - len(stories)
+			goroutinesToLaunch := (numStories - len(stories)) * 5 / 4
 			indicesLeft := len(ids) - idx
 			if indicesLeft < goroutinesToLaunch {
 				goroutinesToLaunch = indicesLeft
